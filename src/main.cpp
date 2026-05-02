@@ -364,7 +364,9 @@ static void goToDeepSleep() {
 void setup() {
   Serial.begin(115200);
   delay(300);
-
+  //スリープ復帰時にLEDピンのホールド状態を解除する
+  gpio_hold_dis((gpio_num_t)PIN_STATUS_LED);
+  
   pinMode(PIN_STATUS_LED, OUTPUT);
   setStatusLed(false);
 
