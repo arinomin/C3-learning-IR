@@ -335,20 +335,23 @@ static void goToDeepSleep() {
   UI::showMessage("Sleep", "Good bye.");
   delay(1000);
   
-  // OLEDをコマンドで消灯
+  // OLED消灯
   Wire.beginTransmission(OLED_ADDR);
   Wire.write(0x00);
-  Wire.write(0xAE); // Display OFF
+  Wire.write(0xAE);
   Wire.endTransmission();
 
-  // ★青色LEDを完全に消灯し、スリープ中もLOW状態を強制維持する（漏れ電流防止）
+  // LEDの漏れ電流防止
   digitalWrite(PIN_STATUS_LED, LOW);
   gpio_hold_en((gpio_num_t)PIN_STATUS_LED);
   gpio_deep_sleep_hold_en();
 
-  // ★どちらのボタンが押されても復帰できるようにビットマスクを合成
+  // 復帰ピンの設定（必ず入力プルアップに設定）
   pinMode(PIN_BTN_SWITCH, INPUT_PULLUP);
   pinMode(PIN_BTN_SEND, INPUT_PULLUP);
+
+  // RTCピン(0-5)のみをウェイクアップ対象にする
+  // GPIO 3 と GPIO 4 (新アサイン) を指定
   uint64_t wakeMask = (1ULL << PIN_BTN_SWITCH) | (1ULL << PIN_BTN_SEND);
   esp_deep_sleep_enable_gpio_wakeup(wakeMask, ESP_GPIO_WAKEUP_GPIO_LOW);
   

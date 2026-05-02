@@ -7,9 +7,10 @@ constexpr uint8_t PIN_I2C_SDA      = 0;
 constexpr uint8_t PIN_I2C_SCL      = 1;
 constexpr uint8_t PIN_STATUS_LED   = 2;
 constexpr uint8_t PIN_BTN_SWITCH   = 3;
-constexpr uint8_t PIN_IR_SEND      = 4;
+constexpr uint8_t PIN_BTN_SEND     = 4;
 constexpr uint8_t PIN_IR_RECV      = 5;
-constexpr uint8_t PIN_BTN_SEND     = 6;
+constexpr uint8_t PIN_IR_SEND      = 6;
+
 
 // スロット数（拡張時はここを変更）
 constexpr uint8_t SLOT_COUNT       = 5;
