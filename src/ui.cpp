@@ -27,7 +27,7 @@ namespace {
   String formatSignal(const SlotData& s) {
     if (!s.used) return "(empty)";
     String r = s.name.length() ? s.name : "UNKNOWN";
-    r += " 0x";
+    r += "\n0x"; // ★ " 0x" から "\n0x" に変更（\nが改行を意味します）
     char buf[20];
     snprintf(buf, sizeof(buf), "%llX", (unsigned long long)s.value);
     r += buf;
