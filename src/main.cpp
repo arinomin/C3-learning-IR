@@ -4,6 +4,8 @@
 #include <IRrecv.h>
 #include <IRsend.h>
 #include <IRutils.h>
+#include <Wire.h>
+#include <driver/gpio.h>
 
 #include "config.h"
 #include "slot_store.h"
@@ -20,9 +22,14 @@ enum class AppState : uint8_t {
   LearnDeleteConfirm
 };
 
+// ──────────────────────────────────
 // グローバル
+// ──────────────────────────────────
+const uint16_t kCaptureBufferSize = 1024; // 長大なエアコン信号等に対応
+const uint8_t kTimeout = 50;              // タイムアウト判定を延長(デフォルト15)
+
 static IRsend irsend(PIN_IR_SEND);
-static IRrecv irrecv(PIN_IR_RECV);
+static IRrecv irrecv(PIN_IR_RECV, kCaptureBufferSize, kTimeout, true);
 static decode_results recvResults;
 
 static Button btnSwitch(PIN_BTN_SWITCH);
@@ -36,6 +43,13 @@ static uint32_t lastUiUpdate = 0;
 static uint32_t sentFlashUntil = 0;
 static uint32_t blinkLastToggle = 0;
 static bool     blinkOn = false;
+
+// --- ディープスリープ＆名前選択用 ---
+static uint32_t lastInteractionMs = 0;
+constexpr uint32_t SLEEP_TIMEOUT_MS = 15000; // 15秒間操作なしでスリープ
+static uint8_t  deviceNameIdx = 0;
+const char* DEVICE_NAMES[] = {"TV", "AirCon", "Light", "Fan", "Audio", "Custom"};
+constexpr uint8_t DEVICE_NAME_COUNT = 6;
 
 // ──────────────────────────────────
 // ヘルパー
@@ -192,30 +206,29 @@ static void handleLearnMenu(ButtonEvent eSw, ButtonEvent eSn) {
 }
 
 static void handleLearnWait(ButtonEvent eSw, ButtonEvent eSn) {
-  // キャンセル
   if (eSw == ButtonEvent::ShortPress || eSw == ButtonEvent::LongPress) {
-    enterState(AppState::LearnSelect);
+    enterState(AppState::SendMode);
     return;
   }
-  // 受信
   if (irrecv.decode(&recvResults)) {
     SlotData d;
     if (tryDecodeAsSlotData(d)) {
       capturedData = d;
-      Serial.printf("Captured: %s 0x%llX bits=%u\n",
-                    d.name.c_str(),
-                    (unsigned long long)d.value, d.bits);
+      // ★初期値を「解析されたプロトコル名(NEC等)」にする
+      // deviceNameIdx = 0 をプロトコル名とし、1〜6をDEVICE_NAMESにする
+      deviceNameIdx = 0; 
+      
+      Serial.printf("Captured: %s 0x%llX bits=%u\n", 
+                    capturedData.name.c_str(),
+                    (unsigned long long)capturedData.value, capturedData.bits);
       enterState(AppState::LearnSaveConfirm);
     } else {
-      Serial.println("Unknown protocol or invalid signal, retry.");
       irrecv.resume();
     }
     return;
   }
-  // タイムアウト
   if (millis() - stateEnterMs > LEARN_TIMEOUT_MS) {
-    Serial.println("Learn timeout");
-    enterState(AppState::LearnSelect);
+    enterState(AppState::SendMode);
   }
 }
 
@@ -223,9 +236,21 @@ static void handleLearnSaveConfirm(ButtonEvent eSw, ButtonEvent eSn) {
   if (eSn == ButtonEvent::ShortPress) {
     uint8_t cur = SlotStore::getCurrentSlot();
     SlotStore::save(cur, capturedData);
-    Serial.printf("Saved to slot %u\n", cur);
+    Serial.printf("Saved to slot %u with name: %s\n", cur, capturedData.name.c_str());
     enterState(AppState::LearnSelect);
   } else if (eSw == ButtonEvent::ShortPress) {
+    // ★Switchボタンで名前をサイクル
+    // 0: 解析されたプロトコル名, 1〜DEVICE_NAME_COUNT: プリセット名
+    deviceNameIdx = (deviceNameIdx + 1) % (DEVICE_NAME_COUNT + 1);
+    
+    if (deviceNameIdx == 0) {
+      // 解析結果のプロトコル名（NEC, PANASONIC, SONY等）を再取得
+      capturedData.name = typeToString(capturedData.protocol);
+    } else {
+      // プリセット名（TV, AirCon等）を選択
+      capturedData.name = DEVICE_NAMES[deviceNameIdx - 1];
+    }
+  } else if (eSw == ButtonEvent::LongPress) {
     irrecv.resume();
     enterState(AppState::LearnWait);
   }
@@ -305,7 +330,30 @@ static void updateStatusLed() {
     }
   }
 }
+static void goToDeepSleep() {
+  Serial.println("Going to Deep Sleep...");
+  UI::showMessage("Sleep", "Good bye.");
+  delay(1000);
+  
+  // OLEDをコマンドで消灯
+  Wire.beginTransmission(OLED_ADDR);
+  Wire.write(0x00);
+  Wire.write(0xAE); // Display OFF
+  Wire.endTransmission();
 
+  // ★青色LEDを完全に消灯し、スリープ中もLOW状態を強制維持する（漏れ電流防止）
+  digitalWrite(PIN_STATUS_LED, LOW);
+  gpio_hold_en((gpio_num_t)PIN_STATUS_LED);
+  gpio_deep_sleep_hold_en();
+
+  // ★どちらのボタンが押されても復帰できるようにビットマスクを合成
+  pinMode(PIN_BTN_SWITCH, INPUT_PULLUP);
+  pinMode(PIN_BTN_SEND, INPUT_PULLUP);
+  uint64_t wakeMask = (1ULL << PIN_BTN_SWITCH) | (1ULL << PIN_BTN_SEND);
+  esp_deep_sleep_enable_gpio_wakeup(wakeMask, ESP_GPIO_WAKEUP_GPIO_LOW);
+  
+  esp_deep_sleep_start();
+}
 // ──────────────────────────────────
 // setup / loop
 // ──────────────────────────────────
@@ -338,6 +386,11 @@ void loop() {
   ButtonEvent eSw = btnSwitch.update();
   ButtonEvent eSn = btnSend.update();
 
+  // ★いずれかのボタン操作があればスリープタイマーをリセット
+  if (eSw != ButtonEvent::None || eSn != ButtonEvent::None) {
+    lastInteractionMs = millis();
+  }
+
   AppState before = state;
   switch (state) {
     case AppState::SendMode:           handleSendMode(eSw, eSn);          break;
@@ -346,6 +399,11 @@ void loop() {
     case AppState::LearnWait:          handleLearnWait(eSw, eSn);         break;
     case AppState::LearnSaveConfirm:   handleLearnSaveConfirm(eSw, eSn);  break;
     case AppState::LearnDeleteConfirm: handleLearnDeleteConfirm(eSw, eSn);break;
+  }
+
+  // ★30秒放置でディープスリープへ（SendMode時のみ動作）
+  if (state == AppState::SendMode && (millis() - lastInteractionMs > SLEEP_TIMEOUT_MS)) {
+    goToDeepSleep();
   }
 
   // UIは最大20Hzで更新（OLEDのI2C負荷軽減）

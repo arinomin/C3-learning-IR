@@ -59,7 +59,8 @@ void showSendMode(uint8_t slot, const SlotData& data, bool justSent) {
 void showLearnSelect(uint8_t slot, const SlotData& data) {
   display.clearDisplay();
   char left[32];
-  snprintf(left, sizeof(left), "LEARN Slot %u/%u", slot + 1, SLOT_COUNT);
+  // ★ "LEARN Slot %u/%u" から "LEARN %u/%u" に短縮
+  snprintf(left, sizeof(left), "LEARN %u/%u", slot + 1, SLOT_COUNT);
   drawHeader(left, "[SELECT]");
   drawBody(formatSignal(data));
   display.display();
@@ -68,7 +69,8 @@ void showLearnSelect(uint8_t slot, const SlotData& data) {
 void showLearnMenu(uint8_t slot, const SlotData& data, uint8_t menuIdx) {
   display.clearDisplay();
   char left[32];
-  snprintf(left, sizeof(left), "LEARN Slot %u/%u", slot + 1, SLOT_COUNT);
+  // ★ ここも短縮
+  snprintf(left, sizeof(left), "LEARN %u/%u", slot + 1, SLOT_COUNT);
   drawHeader(left, "[MENU]");
   String body;
   body  = (menuIdx == 0) ? ">Overwrite" : " Overwrite";
@@ -80,9 +82,11 @@ void showLearnMenu(uint8_t slot, const SlotData& data, uint8_t menuIdx) {
 void showLearnWait(uint8_t slot, uint32_t remainSec) {
   display.clearDisplay();
   char left[32];
-  snprintf(left, sizeof(left), "LEARN Slot %u/%u", slot + 1, SLOT_COUNT);
+  // ★ ここも短縮
+  snprintf(left, sizeof(left), "LEARN %u/%u", slot + 1, SLOT_COUNT);
   char right[16];
-  snprintf(right, sizeof(right), "[WAIT %lus]", (unsigned long)remainSec);
+  // ★ 右側も少しスッキリさせる
+  snprintf(right, sizeof(right), "[W:%lus]", (unsigned long)remainSec);
   drawHeader(left, right);
   drawBody("Point remote & press");
   display.display();
